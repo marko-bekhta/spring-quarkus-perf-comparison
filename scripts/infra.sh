@@ -120,6 +120,7 @@ start_postgres() {
   local pid=$(run_with_cgroup_support ${engine} run \
     ${cpus_flag} \
     ${cpuset_flag} \
+    --tmpfs /var/run/postgresql:rw \
     --memory ${DB_MEMORY} \
     -d \
     --rm \

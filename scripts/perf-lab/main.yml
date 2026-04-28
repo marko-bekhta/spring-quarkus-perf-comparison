@@ -72,7 +72,7 @@ states:
       updateScript: update-quarkus-version
       updateVersion: ${{config.quarkus.version}}
       buildRequiresTestServices: false
-      buildCmd: "${{APP_CMD_PREFIX}} ./mvnw ${{config.quarkus.build_config_args}} clean package -DskipTests"
+      buildCmd: "${{APP_CMD_PREFIX}} mvn ${{config.quarkus.build_config_args}} clean package -DskipTests"
       runCmd: "${{BASE_JAVA_CMD}} -jar ${{RUNTIME_BUILD_DIR}}/quarkus-app/quarkus-run.jar"
       logFileStartedRegex: ".*quarkus3.+started in.*"
     - name: quarkus3-leyden
@@ -81,7 +81,7 @@ states:
       updateScript: update-quarkus-version
       updateVersion: ${{config.quarkus.version}}
       buildRequiresTestServices: false
-      buildCmd: "${{APP_CMD_PREFIX}} ./mvnw ${{config.quarkus.build_config_args}} clean verify -Dquarkus.package.jar.aot.enabled=true -Dsurefire.excludes='**/*'"
+      buildCmd: "${{APP_CMD_PREFIX}} mvn ${{config.quarkus.build_config_args}} clean verify -Dquarkus.package.jar.aot.enabled=true -Dsurefire.excludes='**/*'"
       runCmd: "${{BASE_JAVA_CMD}} -XX:AOTCache=${{RUNTIME_BUILD_DIR}}/quarkus-app/app.aot -jar ${{RUNTIME_BUILD_DIR}}/quarkus-app/quarkus-run.jar"
       logFileStartedRegex: ".*quarkus3.+started in.*"
     - name: quarkus3-virtual
@@ -90,7 +90,7 @@ states:
       updateScript: update-quarkus-version
       updateVersion: ${{config.quarkus.version}}
       buildRequiresTestServices: false
-      buildCmd: "${{APP_CMD_PREFIX}} ./mvnw ${{config.quarkus.build_config_args}} clean package -DskipTests"
+      buildCmd: "${{APP_CMD_PREFIX}} mvn ${{config.quarkus.build_config_args}} clean package -DskipTests"
       runCmd: "${{BASE_JAVA_CMD}} -jar ${{RUNTIME_BUILD_DIR}}/quarkus-app/quarkus-run.jar"
       logFileStartedRegex: ".*quarkus3.+started in.*"
     - name: quarkus3-virtual-leyden
@@ -99,7 +99,7 @@ states:
       updateScript: update-quarkus-version
       updateVersion: ${{config.quarkus.version}}
       buildRequiresTestServices: false
-      buildCmd: "${{APP_CMD_PREFIX}} ./mvnw ${{config.quarkus.build_config_args}} clean verify -Dquarkus.package.jar.aot.enabled=true -Dsurefire.excludes='**/*'"
+      buildCmd: "${{APP_CMD_PREFIX}} mvn ${{config.quarkus.build_config_args}} clean verify -Dquarkus.package.jar.aot.enabled=true -Dsurefire.excludes='**/*'"
       runCmd: "${{BASE_JAVA_CMD}} -XX:AOTCache=${{RUNTIME_BUILD_DIR}}/quarkus-app/app.aot -jar ${{RUNTIME_BUILD_DIR}}/quarkus-app/quarkus-run.jar"
       logFileStartedRegex: ".*quarkus3.+started in.*"
     - name: quarkus3-native
@@ -108,7 +108,7 @@ states:
       updateScript: update-quarkus-version
       updateVersion: ${{config.quarkus.version}}
       buildRequiresTestServices: false
-      buildCmd: "${{APP_CMD_PREFIX}} ./mvnw ${{config.quarkus.build_config_args}} clean package -DskipTests -Pnative ${{config.quarkus.native_build_options}}"
+      buildCmd: "${{APP_CMD_PREFIX}} mvn ${{config.quarkus.build_config_args}} clean package -DskipTests -Pnative ${{config.quarkus.native_build_options}}"
       runCmd: "${{APP_CMD_PREFIX}} ${{RUNTIME_BUILD_DIR}}/quarkus3-runner ${{config.jvm.memory}}"
       logFileStartedRegex: ".*quarkus3.+started in.*"
     - name: spring3-jvm
@@ -117,7 +117,7 @@ states:
       updateScript: update-spring-boot-version
       updateVersion: ${{config.springboot3.version}}
       buildRequiresTestServices: false
-      buildCmd: "${{APP_CMD_PREFIX}} ./mvnw clean package -DskipTests"
+      buildCmd: "${{APP_CMD_PREFIX}} mvn clean package -DskipTests"
       runCmd: "${{BASE_JAVA_CMD}} -jar ${{RUNTIME_BUILD_DIR}}/springboot3.jar"
       logFileStartedRegex: ".*Started SpringBoot3Application in.+seconds.*"
     - name: spring3-leyden
@@ -126,7 +126,7 @@ states:
       updateScript: update-spring-boot-version
       updateVersion: ${{config.springboot3.version}}
       buildRequiresTestServices: true
-      buildCmd: "./mvnw clean package -DskipTests && java -Djarmode=tools -jar ${{SPRING3_BOOT_DIR}}/target/springboot3.jar extract --destination ${{SPRING3_BOOT_DIR}}/target/aot-app && java -XX:AOTCacheOutput=${{SPRING3_BOOT_DIR}}/target/app.aot -Dspring.context.exit=onRefresh -jar ${{SPRING3_BOOT_DIR}}/target/springboot3.jar"
+      buildCmd: "mvn clean package -DskipTests && java -Djarmode=tools -jar ${{SPRING3_BOOT_DIR}}/target/springboot3.jar extract --destination ${{SPRING3_BOOT_DIR}}/target/aot-app && java -XX:AOTCacheOutput=${{SPRING3_BOOT_DIR}}/target/app.aot -Dspring.context.exit=onRefresh -jar ${{SPRING3_BOOT_DIR}}/target/springboot3.jar"
       runCmd: "${{BASE_JAVA_CMD}} -XX:AOTCache=${{RUNTIME_BUILD_DIR}}/app.aot -jar ${{RUNTIME_BUILD_DIR}}/springboot3.jar"
       logFileStartedRegex: ".*Started SpringBoot3Application in.+seconds.*"
     - name: spring3-virtual
@@ -135,7 +135,7 @@ states:
       updateScript: update-spring-boot-version
       updateVersion: ${{config.springboot3.version}}
       buildRequiresTestServices: false
-      buildCmd: "${{APP_CMD_PREFIX}} ./mvnw clean package -DskipTests -Dspring.threads.virtual.enabled=true"
+      buildCmd: "${{APP_CMD_PREFIX}} mvn clean package -DskipTests -Dspring.threads.virtual.enabled=true"
       runCmd: "${{BASE_JAVA_CMD}} -Dspring.threads.virtual.enabled=true -jar ${{RUNTIME_BUILD_DIR}}/springboot3.jar"
       logFileStartedRegex: ".*Started SpringBoot3Application in.+seconds.*"
     - name: spring3-virtual-leyden
@@ -144,7 +144,7 @@ states:
       updateScript: update-spring-boot-version
       updateVersion: ${{config.springboot3.version}}
       buildRequiresTestServices: true
-      buildCmd: "./mvnw clean package -DskipTests -Dspring.threads.virtual.enabled=true && java -Djarmode=tools -jar ${{SPRING3_BOOT_DIR}}/target/springboot3.jar extract --destination ${{SPRING3_BOOT_DIR}}/target/aot-app && java -XX:AOTCacheOutput=${{SPRING3_BOOT_DIR}}/target/app.aot -Dspring.context.exit=onRefresh -Dspring.threads.virtual.enabled=true -jar ${{SPRING3_BOOT_DIR}}/target/springboot3.jar"
+      buildCmd: "mvn clean package -DskipTests -Dspring.threads.virtual.enabled=true && java -Djarmode=tools -jar ${{SPRING3_BOOT_DIR}}/target/springboot3.jar extract --destination ${{SPRING3_BOOT_DIR}}/target/aot-app && java -XX:AOTCacheOutput=${{SPRING3_BOOT_DIR}}/target/app.aot -Dspring.context.exit=onRefresh -Dspring.threads.virtual.enabled=true -jar ${{SPRING3_BOOT_DIR}}/target/springboot3.jar"
       runCmd: "${{BASE_JAVA_CMD}} -XX:AOTCache=${{RUNTIME_BUILD_DIR}}/app.aot -Dspring.threads.virtual.enabled=true -jar ${{RUNTIME_BUILD_DIR}}/springboot3.jar"
       logFileStartedRegex: ".*Started SpringBoot3Application in.+seconds.*"
     - name: spring3-jvm-aot
@@ -153,7 +153,7 @@ states:
       updateScript: update-spring-boot-version
       updateVersion: ${{config.springboot3.version}}
       buildRequiresTestServices: false
-      buildCmd: "${{APP_CMD_PREFIX}} ./mvnw clean compile spring-boot:process-aot package -DskipTests"
+      buildCmd: "${{APP_CMD_PREFIX}} mvn clean compile spring-boot:process-aot package -DskipTests"
       runCmd: "${{BASE_JAVA_CMD}} -Dspring.aot.enabled=true -jar ${{RUNTIME_BUILD_DIR}}/springboot3.jar"
       logFileStartedRegex: ".*Started SpringBoot3Application in.+seconds.*"
     - name: spring3-native
@@ -162,7 +162,7 @@ states:
       updateScript: update-spring-boot-version
       updateVersion: ${{config.springboot3.version}}
       buildRequiresTestServices: false
-      buildCmd: "${{APP_CMD_PREFIX}} ./mvnw clean -Pnative -DskipTests native:compile package ${{config.springboot3.native_build_options}}"
+      buildCmd: "${{APP_CMD_PREFIX}} mvn clean -Pnative -DskipTests native:compile package ${{config.springboot3.native_build_options}}"
       runCmd: "${{APP_CMD_PREFIX}} ${{RUNTIME_BUILD_DIR}}/springboot3 ${{config.jvm.memory}}"
       logFileStartedRegex: ".*Started SpringBoot3Application in.+seconds.*"
     - name: spring4-jvm
@@ -171,7 +171,7 @@ states:
       updateScript: update-spring-boot-version
       updateVersion: ${{config.springboot4.version}}
       buildRequiresTestServices: false
-      buildCmd: "${{APP_CMD_PREFIX}} ./mvnw clean package -DskipTests"
+      buildCmd: "${{APP_CMD_PREFIX}} mvn clean package -DskipTests"
       runCmd: "${{BASE_JAVA_CMD}} -jar ${{RUNTIME_BUILD_DIR}}/springboot4.jar"
       logFileStartedRegex: ".*Started SpringBoot4Application in.+seconds.*"
     - name: spring4-leyden
@@ -180,7 +180,7 @@ states:
       updateScript: update-spring-boot-version
       updateVersion: ${{config.springboot4.version}}
       buildRequiresTestServices: true
-      buildCmd: "./mvnw clean package -DskipTests && java -Djarmode=tools -jar ${{SPRING4_BOOT_DIR}}/target/springboot4.jar extract --destination ${{SPRING4_BOOT_DIR}}/target/aot-app && java -XX:AOTCacheOutput=${{SPRING4_BOOT_DIR}}/target/app.aot -Dspring.context.exit=onRefresh -jar ${{SPRING4_BOOT_DIR}}/target/springboot4.jar"
+      buildCmd: "mvn clean package -DskipTests && java -Djarmode=tools -jar ${{SPRING4_BOOT_DIR}}/target/springboot4.jar extract --destination ${{SPRING4_BOOT_DIR}}/target/aot-app && java -XX:AOTCacheOutput=${{SPRING4_BOOT_DIR}}/target/app.aot -Dspring.context.exit=onRefresh -jar ${{SPRING4_BOOT_DIR}}/target/springboot4.jar"
       runCmd: "${{BASE_JAVA_CMD}} -XX:AOTCache=${{RUNTIME_BUILD_DIR}}/app.aot -jar ${{RUNTIME_BUILD_DIR}}/springboot4.jar"
       logFileStartedRegex: ".*Started SpringBoot4Application in.+seconds.*"
     - name: spring4-virtual
@@ -189,7 +189,7 @@ states:
       updateScript: update-spring-boot-version
       updateVersion: ${{config.springboot4.version}}
       buildRequiresTestServices: false
-      buildCmd: "${{APP_CMD_PREFIX}} ./mvnw clean package -DskipTests -Dspring.threads.virtual.enabled=true"
+      buildCmd: "${{APP_CMD_PREFIX}} mvn clean package -DskipTests -Dspring.threads.virtual.enabled=true"
       runCmd: "${{BASE_JAVA_CMD}} -Dspring.threads.virtual.enabled=true -jar ${{RUNTIME_BUILD_DIR}}/springboot4.jar"
       logFileStartedRegex: ".*Started SpringBoot4Application in.+seconds.*"
     - name: spring4-virtual-leyden
@@ -198,7 +198,7 @@ states:
       updateScript: update-spring-boot-version
       updateVersion: ${{config.springboot4.version}}
       buildRequiresTestServices: true
-      buildCmd: "./mvnw clean package -DskipTests -Dspring.threads.virtual.enabled=true && java -Djarmode=tools -jar ${{SPRING4_BOOT_DIR}}/target/springboot4.jar extract --destination ${{SPRING4_BOOT_DIR}}/target/aot-app && java -XX:AOTCacheOutput=${{SPRING4_BOOT_DIR}}/target/app.aot -Dspring.threads.virtual.enabled=true -Dspring.context.exit=onRefresh -jar ${{SPRING4_BOOT_DIR}}/target/springboot4.jar"
+      buildCmd: "mvn clean package -DskipTests -Dspring.threads.virtual.enabled=true && java -Djarmode=tools -jar ${{SPRING4_BOOT_DIR}}/target/springboot4.jar extract --destination ${{SPRING4_BOOT_DIR}}/target/aot-app && java -XX:AOTCacheOutput=${{SPRING4_BOOT_DIR}}/target/app.aot -Dspring.threads.virtual.enabled=true -Dspring.context.exit=onRefresh -jar ${{SPRING4_BOOT_DIR}}/target/springboot4.jar"
       runCmd: "${{BASE_JAVA_CMD}} -XX:AOTCache=${{RUNTIME_BUILD_DIR}}/app.aot -Dspring.threads.virtual.enabled=true -jar ${{RUNTIME_BUILD_DIR}}/springboot4.jar"
       logFileStartedRegex: ".*Started SpringBoot4Application in.+seconds.*"
     - name: spring4-jvm-aot
@@ -207,7 +207,7 @@ states:
       updateScript: update-spring-boot-version
       updateVersion: ${{config.springboot4.version}}
       buildRequiresTestServices: false
-      buildCmd: "${{APP_CMD_PREFIX}} ./mvnw clean compile spring-boot:process-aot package -DskipTests"
+      buildCmd: "${{APP_CMD_PREFIX}} mvn clean compile spring-boot:process-aot package -DskipTests"
       runCmd: "${{BASE_JAVA_CMD}} -Dspring.aot.enabled=true -jar ${{RUNTIME_BUILD_DIR}}/springboot4.jar"
       logFileStartedRegex: ".*Started SpringBoot4Application in.+seconds.*"
     - name: spring4-native
@@ -216,7 +216,7 @@ states:
       updateScript: update-spring-boot-version
       updateVersion: ${{config.springboot4.version}}
       buildRequiresTestServices: false
-      buildCmd: "${{APP_CMD_PREFIX}} ./mvnw clean -Pnative -DskipTests native:compile package ${{config.springboot4.native_build_options}}"
+      buildCmd: "${{APP_CMD_PREFIX}} mvn clean -Pnative -DskipTests native:compile package ${{config.springboot4.native_build_options}}"
       runCmd: "${{APP_CMD_PREFIX}} ${{RUNTIME_BUILD_DIR}}/springboot4 ${{config.jvm.memory}}"
       logFileStartedRegex: ".*Started SpringBoot4Application in.+seconds.*"
 
@@ -309,7 +309,7 @@ scripts:
     - log: "Downloading dependencies for ${{RUNTIMECMD.updateVersion:}}"
     # Pre-download dependencies to exclude it from build time
     # also to ensure any dependency resolution issues are caught before we start measuring build times
-    - sh: ./mvnw dependency:go-offline
+    - sh: mvn dependency:go-offline
 
   build-and-cache-runtime:
     - script: measure-build-times
@@ -333,7 +333,7 @@ scripts:
         groupId: org.springframework.boot
         artifactId: spring-boot-starter-parent
         version: ${{VERSION}}
-    - sh: ./mvnw versions:update-parent "-DparentVersion=[${{VERSION}}]" -DskipResolution=true
+    - sh: mvn versions:update-parent "-DparentVersion=[${{VERSION}}]" -DskipResolution=true
 
   update-quarkus-version:
     - script: check-dependency-exists
@@ -341,7 +341,7 @@ scripts:
         groupId: io.quarkus.platform
         artifactId: quarkus-bom
         version: ${{VERSION}}
-    - sh: ./mvnw versions:set-property -Dproperty=quarkus.platform.version -DnewVersion=${{VERSION}}
+    - sh: mvn versions:set-property -Dproperty=quarkus.platform.version -DnewVersion=${{VERSION}}
 
   start-test-services:
     - sh: "${{PROJ_REPO_DIR}}/scripts/infra.sh -c 3 -l 3 -p '${{config.resources.cpu.db}}' -g '${{config.resources.cpu.otel}}' -s ${{= ${{config.run.useContainerHostNetwork:false}} ? '-n' : ''}}"

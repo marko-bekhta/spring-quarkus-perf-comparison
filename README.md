@@ -172,12 +172,15 @@ For instance, from the `scripts/perf-lab/` directory:
 
 ```shell
 ./run-benchmarks.sh \
+  --repo-url https://github.com/marko-bekhta/spring-quarkus-perf-comparison.git \
+  --repo-branch test/patched \
+  --user agentuser \
   --host LOCAL \
-  --drop-fs-caches \
-  --runtimes quarkus3-jvm,quarkus3-virtual \
-  --quarkus-version "3.32.2" \
-  --output-dir ./results \
-  --tests measure-time-to-first-request
+  --iterations 1 \
+  --profiler flamegraph \
+  --runtimes quarkus3-jvm \
+  --quarkus-version "3.34.5" \
+  --output-dir ./results 
 ```
 
 > [!NOTE]
@@ -242,9 +245,9 @@ either create a user called `jenkins` or adapt the following instructions for yo
 
 Execute: `sudo visudo`
 ```text
-jenkins ALL=(root) NOPASSWD: /usr/bin/tee /proc/sys/vm/drop_caches
-jenkins ALL=(root) NOPASSWD: /usr/bin/tee /proc/sys/kernel/perf_event_paranoid
-jenkins ALL=(root) NOPASSWD: /usr/bin/tee /proc/sys/kernel/kptr_restrict
+agentuser ALL=(root) NOPASSWD: /usr/bin/tee /proc/sys/vm/drop_caches
+agentuser ALL=(root) NOPASSWD: /usr/bin/tee /proc/sys/kernel/perf_event_paranoid
+agentuser ALL=(root) NOPASSWD: /usr/bin/tee /proc/sys/kernel/kptr_restrict
 ```
 
 ## Running a Benchmark Example
@@ -256,7 +259,7 @@ your environment:
 cd scripts/perf-lab
 BRANCH=main
 REPO=https://github.com/quarkusio/spring-quarkus-perf-comparison.git
-QDUP_USER=jenkins
+QDUP_USER=agentuser
 ./run-benchmarks.sh --repo-branch $BRANCH --scenario tuned --output-dir run --graalvm-version 25.0.2-graalce \
   --host 127.0.0.1 --iterations 1 --java-version 25.0.2-tem --repo-url $REPO --profiler none \
   --quarkus-version 3.34.1 --springboot3-version 3.5.13 --springboot4-version 4.0.5 --user $QDUP_USER \
