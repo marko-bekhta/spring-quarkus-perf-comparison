@@ -59,6 +59,17 @@ test_count_cpus() {
 # --- Run tests ---
 
 test_count_cpus
+assert_equals "normalize step range for Podman" "0,2,4,6" "$(normalize_cpus '0-7:2')"
+assert_equals "normalize duplicate CPUs" "0,1,2,3" "$(normalize_cpus '0-3,2')"
+for invalid in '' '3-1' '0-3:0' 'one' '0,,1' '0,'; do
+  TESTS_RUN=$(( TESTS_RUN + 1 ))
+  if normalize_cpus "$invalid" >/dev/null; then
+    echo "FAIL: accepted invalid CPU list '$invalid'"
+    TESTS_FAILED=$(( TESTS_FAILED + 1 ))
+  else
+    echo "PASS: rejects invalid CPU list '$invalid'"
+  fi
+done
 
 # --- Summary ---
 

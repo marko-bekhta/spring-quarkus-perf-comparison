@@ -390,3 +390,95 @@ Runs [all the tests](#available-tests) against [all the runtimes](#available-run
 
 - **0** - Successful execution
 - **1** - Error occurred (missing required parameters, invalid options, etc.)
+
+## Running a working checkout locally
+
+Use `--locally` to run against the checkout containing the runner, including
+uncommitted edits. It selects `main-local.yml`; `main.yml` remains the lab
+workflow. Both load the shared runtime definitions and measurements from
+`benchmarks.yml`. The runner can be invoked from any directory.
+
+```bash
+scripts/perf-lab/run-benchmarks.sh --locally \
+  --runtimes quarkus3-jvm,spring3-jvm \
+  --tests measure-time-to-first-request,measure-rss \
+  --iterations 1 \
+  --java-home /path/to/jdk \
+  --cpus-app 0-3 --cpus-db 4-6 --cpus-otel 7-9 \
+  --cpus-load-gen 10-12 --cpus-monitoring 13 --cpus-first-request 10
+```
+
+Choose CPU IDs from `lscpu -e` for **your machine**; the example is not a
+universal allocation. Local preflight rejects unavailable CPUs, overlapping
+workloads and physical cores shared through SMT. Only the first-request and
+load-generator allocations may share cores because they run sequentially.
+Container affinity uses `--cpuset-cpus` without a CPU quota. Taskset step ranges
+such as `0-6:2` are expanded before forwarding to containers. There is no
+fallback to unpinned execution.
+
+Local mode requires Linux, an installed JDK, Git, JBang, jq, ss (usually from `iproute`), taskset,
+timeout, curl, pidstat (usually from `sysstat`), flock (usually from `util-linux`),
+`/usr/bin/time`, and Podman or Docker. It checks prerequisites rather than
+installing packages or updating SDKMAN. `--java-home` defaults to the JDK
+providing `java` on PATH; SDKMAN version options do not select JDKs in local
+mode. Native runtimes additionally require `--graalvm-home`, GCC and zlib
+headers. The default runtime list includes native variants, so select JVM
+runtimes explicitly if you do not have GraalVM installed.
+
+Local mode never clones or deletes the checkout. Maven still writes `target/`.
+Framework version overrides show the requested POM edits and require one
+interactive confirmation before benchmark execution. Declining or running
+noninteractively with overrides aborts; edits remain in the checkout after the
+run. Without overrides, existing POM versions are used. Lab-managed clones
+continue to apply overrides without confirmation. `--repo-url`, `--repo-branch`
+and remote hosts are not supported with `--locally`.
+
+Logs, metrics and cached builds are retained in a unique `perf-local.*`
+directory under `--output-dir` (default `/tmp`). qDup writes its result files and downloaded logs under that run directory’s
+`qdup/` subdirectory. Existing `fruits_db`/`otel_lgtm` containers and occupied
+benchmark ports cause preflight to fail; resolve those conflicts explicitly.
+Concurrent local benchmark runs are rejected. The lab workflow refuses to
+remove its workspace if that workspace is itself a Git checkout.
+
+Local profiling with async-profiler checks the required kernel settings rather
+than changing them: `kernel.perf_event_paranoid <= 1` and
+`kernel.kptr_restrict = 0`. Configure them deliberately before running or use
+`--profiler syncjfr`. `--drop-fs-caches` still explicitly requests dropping
+system caches and requires noninteractive sudo.
+
+### Fedora / rootless Podman
+
+Rootless Podman supports cpusets with cgroup v2 and the appropriate controller
+delegation. A missing `cpuset` controller is a configuration issue, not a reason
+to remove pinning. Local preflight checks runtime information and runs disposable
+containers with the requested cpusets and memory limit before starting builds.
+
+Inspect the current configuration:
+
+```bash
+podman info --format '{{.Host.CgroupVersion}} {{.Host.CgroupControllers}}'
+cat "/sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/cgroup.controllers"
+```
+
+If controllers are missing, an administrator can create
+`/etc/systemd/system/user@.service.d/delegate.conf` with:
+
+```ini
+[Service]
+Delegate=memory pids cpu cpuset
+```
+
+Then reload the system manager configuration:
+
+```bash
+sudo systemctl daemon-reload
+```
+
+Recheck the controllers and rerun local preflight. If the resource probe passes,
+a new login is unnecessary. If controllers remain unavailable, log out fully
+and log back in, then check again. The script does not change systemd
+configuration automatically. Keep existing delegation requirements in mind
+when editing an already configured drop-in.
+
+See [Podman's resource-limit troubleshooting](https://github.com/podman-container-tools/podman/blob/main/troubleshooting.md#26-running-containers-with-resource-limits-fails-with-a-permissions-error)
+and [rootless delegation instructions](https://docs.docker.com/engine/security/rootless/tips/#limiting-resources).

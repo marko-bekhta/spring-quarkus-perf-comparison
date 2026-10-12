@@ -45,6 +45,7 @@ help() {
   echo "  --graalvm-version <GRAALVM_VERSION>                     The GraalVM version to use if running any native tests (from SDKMAN)"
   echo "                                                              Default: ${GRAALVM_VERSION}"
   echo "                                                              Ignored if --graalvm-home is set"
+  echo "  --locally                                              Use this checkout directly, with strict local preflight checks"
   echo "  --host <HOST>                                           The HOST to run the benchmarks on"
   echo "                                                              LOCAL is a keyword that can be used to run everything on the local machine"
   echo "                                                              Default: ${HOST}"
@@ -127,7 +128,7 @@ validate_values() {
   fi
 
   if [ ! -d "$OUTPUT_DIR" ]; then
-    mkdir -p $OUTPUT_DIR
+    mkdir -p "$OUTPUT_DIR"
   fi
 }
 
@@ -166,6 +167,8 @@ print_values() {
   echo "  DROP_OS_FILESYSTEM_CACHES: $DROP_OS_FILESYSTEM_CACHES"
   echo "  USE_CONTAINER_HOST_NETWORK: $USE_CONTAINER_HOST_NETWORK"
   echo "  JVM_ARGS: $JVM_ARGS"
+  echo "  LOCALLY: $LOCALLY"
+  echo "  WORKFLOW: $WORKFLOW"
   echo "  EXTRA_QDUP_ARGS: $EXTRA_QDUP_ARGS"
   echo "  OUTPUT_DIR: $OUTPUT_DIR"
   echo "  DESCRIPTION: '${DESCRIPTION}'"
@@ -197,6 +200,8 @@ make_json_array() {
 count_cpus() {
   local cpu_list="$1"
   local count=0
+  local parts part
+  [[ -n "$cpu_list" ]] || { echo "Empty CPU list" >&2; return 1; }
 
   IFS=',' read -ra parts <<< "$cpu_list"
   for part in "${parts[@]}"; do
@@ -205,19 +210,70 @@ count_cpus() {
       local start="${BASH_REMATCH[1]}"
       local end="${BASH_REMATCH[2]}"
       local step="${BASH_REMATCH[3]}"
+      (( step > 0 && end >= start )) || { echo "Invalid CPU range: $part" >&2; return 1; }
       count=$(( count + (end - start) / step + 1 ))
     elif [[ "$part" =~ ^([0-9]+)-([0-9]+)$ ]]; then
       # Range: start-end
       local start="${BASH_REMATCH[1]}"
       local end="${BASH_REMATCH[2]}"
+      (( end >= start )) || { echo "Invalid CPU range: $part" >&2; return 1; }
       count=$(( count + end - start + 1 ))
-    else
+    elif [[ "$part" =~ ^[0-9]+$ ]]; then
       # Single CPU
       count=$(( count + 1 ))
+    else
+      echo "Invalid CPU list: $cpu_list" >&2
+      return 1
     fi
   done
 
   echo "$count"
+}
+
+# Convert taskset step ranges to the list syntax accepted by container runtimes.
+normalize_cpus() {
+  local cpu_list="$1" part start end step cpu
+  local -a parts result=()
+  local -A seen=()
+  [[ -n "$cpu_list" && "$cpu_list" != *, && "$cpu_list" != ,* && "$cpu_list" != *,,* ]] || return 1
+  IFS=',' read -ra parts <<< "$cpu_list"
+  for part in "${parts[@]}"; do
+    if [[ "$part" =~ ^([0-9]+)(-([0-9]+)(:([0-9]+))?)?$ ]]; then
+      start=$((10#${BASH_REMATCH[1]}))
+      end=$((10#${BASH_REMATCH[3]:-${BASH_REMATCH[1]}}))
+      step=$((10#${BASH_REMATCH[5]:-1}))
+      (( step > 0 && end >= start && end <= 1048575 )) || return 1
+      for ((cpu=start; cpu<=end; cpu+=step)); do
+        if [[ -z "${seen[$cpu]:-}" ]]; then
+          result+=("$cpu")
+          seen[$cpu]=1
+        fi
+      done
+    else
+      return 1
+    fi
+  done
+  (IFS=','; echo "${result[*]}")
+}
+
+confirm_local_edits() {
+  local changes=() answer
+  if [[ -n "$QUARKUS_VERSION" && "$RUNTIMES" == *quarkus3* ]]; then
+    changes+=("Quarkus POMs (selected runtimes): $QUARKUS_VERSION")
+  fi
+  if [[ -n "$SPRING_BOOT3_VERSION" && "$RUNTIMES" == *spring3* ]]; then
+    changes+=("springboot3/pom.xml: $SPRING_BOOT3_VERSION")
+  fi
+  if [[ -n "$SPRING_BOOT4_VERSION" && "$RUNTIMES" == *spring4* ]]; then
+    changes+=("springboot4/pom.xml: $SPRING_BOOT4_VERSION")
+  fi
+  (( ${#changes[@]} )) || return 0
+  printf 'Version overrides will edit POMs in %s:\n' "$LOCAL_CHECKOUT"
+  printf '  %s\n' "${changes[@]}"
+  echo "These edits remain in the checkout, including after a failed run."
+  [[ -t 0 ]] || { echo "Local POM edits require interactive confirmation. Run from a terminal." >&2; return 1; }
+  read -r -p "Apply these edits and continue? [y/N] " answer
+  [[ "$answer" == y || "$answer" == Y || "$answer" == yes ]] || { echo "Run cancelled before POM edits." >&2; return 1; }
 }
 
 setup_jbang() {
@@ -259,15 +315,24 @@ run_benchmarks() {
     local target="${USER}@${HOST}"
   fi
 
+  local -a exit_options=()
+  local qdup_output="$OUTPUT_DIR"
+  if [[ "$LOCALLY" != true ]]; then
+    exit_options=(-ix)
+  else
+    qdup_output="$LOCAL_RUN_DIR/qdup"
+  fi
+
 #print_values
 
 #  jbang qDup@hyperfoil --trace="target" \
 
 ${JBANG_CMD} io.hyperfoil.tools:qDup:0.11.2 \
-    -B ${OUTPUT_DIR} \
-    -ix \
+    -B "${qdup_output}" \
+    "${exit_options[@]}" \
     ${EXTRA_QDUP_ARGS} \
-    ./main.yml \
+    "${WORKFLOW}" \
+    ./benchmarks.yml \
     ./helpers/ \
     -S config.jvm.graalvm.home="${GRAALVM_HOME}" \
     -S config.jvm.graalvm.version=${GRAALVM_VERSION} \
@@ -294,6 +359,9 @@ ${JBANG_CMD} io.hyperfoil.tools:qDup:0.11.2 \
     -S config.repo.branch=${SCM_REPO_BRANCH} \
     -S config.repo.url=${SCM_REPO_URL} \
     -S config.repo.scenario=${SCENARIO} \
+    -S config.run.locally="${LOCALLY}" \
+    -S config.local.checkout="${LOCAL_CHECKOUT}" \
+    -S config.local.run_dir="${LOCAL_RUN_DIR}" \
     -S config.run.description="${DESCRIPTION}" \
     -S config.run.identifier="${RUN_IDENTIFIER}" \
     -S config.run.dropOsFilesystemCaches=${DROP_OS_FILESYSTEM_CACHES} \
@@ -302,7 +370,7 @@ ${JBANG_CMD} io.hyperfoil.tools:qDup:0.11.2 \
     -S env.run.host.target=${target} \
     -S env.run.host.name=${HOST} \
     -S config.num_iterations=${ITERATIONS} \
-    -S PROJ_REPO_NAME="$(basename ${SCM_REPO_URL} .git)" \
+    -S PROJ_REPO_NAME="$(basename "${SCM_REPO_URL}" .git)" \
     -S RUNTIMES="$(make_json_array $RUNTIMES)" \
     -S PAUSE_TIME=${WAIT_TIME} \
     -S TESTS="$(make_json_array $TESTS_TO_RUN)"
@@ -310,6 +378,12 @@ ${JBANG_CMD} io.hyperfoil.tools:qDup:0.11.2 \
 
 # Only run main logic when executed directly (not when sourced)
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  LOCAL_CHECKOUT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+  LOCAL_RUN_DIR=""
+  LOCALLY=false
+  WORKFLOW=./main.yml
 
   # Define defaults
   CPUS_APP="0-3"
@@ -355,7 +429,22 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
 
   # Process the inputs - Manual parsing for portability
   while [[ $# -gt 0 ]]; do
+    # All options except these flags require a nonempty value.
     case "$1" in
+      -h|--help|--locally|--drop-fs-caches|--use-container-host-network) ;;
+      *)
+        if [[ $# -lt 2 || -z "$2" || "$2" == --* ]]; then
+          echo "Missing value for $1" >&2
+          exit 1
+        fi
+        ;;
+    esac
+    case "$1" in
+      --locally)
+        LOCALLY=true
+        WORKFLOW=./main-local.yml
+        shift
+        ;;
       -h|--help)
         help
         exit 0
@@ -472,10 +561,11 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         ;;
 
       --runtimes)
+        [[ "$2" != ,* && "$2" != *, && "$2" != *,,* ]] || { echo "--runtimes requires a nonempty comma-separated list" >&2; exit 1; }
         rt=($(IFS=','; echo $2))
 
         for item in "${rt[@]}"; do
-          if [[ ! "${ALLOWED_RUNTIMES[@]}" =~ "${item}" ]]; then
+          if [[ " ${ALLOWED_RUNTIMES[*]} " != *" ${item} "* ]]; then
             echo "!! [ERROR] --runtimes option must contain 1 or more of [${ALLOWED_RUNTIMES[@]}]!!"
             exit_abnormal
           fi
@@ -507,10 +597,11 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         ;;
 
       --tests)
+        [[ "$2" != ,* && "$2" != *, && "$2" != *,,* ]] || { echo "--tests requires a nonempty comma-separated list" >&2; exit 1; }
         ttr=($(IFS=','; echo $2))
 
         for item in "${ttr[@]}"; do
-          if [[ ! "${ALLOWED_TESTS_TO_RUN[@]}" =~ "${item}" ]]; then
+          if [[ " ${ALLOWED_TESTS_TO_RUN[*]} " != *" ${item} "* ]]; then
             echo "!! [ERROR] --tests option must contain 1 or more of [${ALLOWED_TESTS_TO_RUN[@]}]!!"
             exit_abnormal
           fi
@@ -586,7 +677,34 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   done
   TESTS_TO_RUN=${filtered_tests[@]}
 
+  [[ "$ITERATIONS" =~ ^[1-9][0-9]*$ ]] || { echo "--iterations must be a positive integer" >&2; exit 1; }
+  [[ "$WAIT_TIME" =~ ^[0-9]+$ ]] || { echo "--wait-time must be a nonnegative integer" >&2; exit 1; }
+  for cpu_var in CPUS_APP CPUS_DB CPUS_OTEL CPUS_LOAD_GEN CPUS_MONITORING CPUS_FIRST_REQUEST; do
+    normalized=$(normalize_cpus "${!cpu_var}") || { echo "Invalid CPU list for $cpu_var: ${!cpu_var}" >&2; exit 1; }
+    printf -v "$cpu_var" '%s' "$normalized"
+  done
+  if [[ "$LOCALLY" != true && "$HOST" == LOCAL && -e "$HOME/spring-quarkus-perf-comparison/.git" ]]; then
+    echo "The lab workspace $HOME/spring-quarkus-perf-comparison is an existing checkout. Use --locally; refusing to delete it." >&2
+    exit 1
+  fi
   validate_values
+  OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)"
+  if [[ "$LOCALLY" == true ]]; then
+    [[ "$HOST" == LOCAL ]] || { echo "--locally requires --host LOCAL" >&2; exit 1; }
+    [[ "$SCM_REPO_URL" == "https://github.com/quarkusio/spring-quarkus-perf-comparison.git" && "$SCM_REPO_BRANCH" == main ]] || {
+      echo "--locally uses the current checkout; --repo-url/--repo-branch are not supported" >&2; exit 1;
+    }
+    # Fixed service names and ports cannot be shared by concurrent local runs.
+    exec 9>"${XDG_RUNTIME_DIR:-/tmp}/spring-quarkus-perf-${UID}.lock"
+    flock -n 9 || { echo "Another local benchmark run is active." >&2; exit 1; }
+    JAVA_HOME="${JAVA_HOME:-$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")}"
+    "$SCRIPT_DIR/scripts/local-preflight.sh" "$JAVA_HOME" "$GRAALVM_HOME" "$RUNTIMES" "$PROFILER" "$DROP_OS_FILESYSTEM_CACHES" \
+      "$CPUS_APP" "$CPUS_DB" "$CPUS_OTEL" "$CPUS_LOAD_GEN" "$CPUS_MONITORING" "$CPUS_FIRST_REQUEST"
+    confirm_local_edits
+    LOCAL_RUN_DIR="$(mktemp -d "$OUTPUT_DIR/perf-local.XXXXXXXX")"
+    echo "Local run workspace (retained): $LOCAL_RUN_DIR"
+  fi
+  cd "$SCRIPT_DIR"
   calculate_scenario
   print_values
   setup_jbang

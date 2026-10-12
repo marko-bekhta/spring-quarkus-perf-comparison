@@ -1,9 +1,9 @@
 name: async-profiler #https://github.com/apangin/async-profiler.git
 scripts:
   async-profiler-configure:
-    - read-state: ${{os}}
+    - read-state: "${{config.run.locally:false}}-${{os}}"
       then:
-        - regex: linux
+        - regex: false-linux
           then:
             - sh: echo 1 | sudo tee /proc/sys/kernel/perf_event_paranoid > /dev/null
             - sh: echo 0 | sudo tee /proc/sys/kernel/kptr_restrict > /dev/null

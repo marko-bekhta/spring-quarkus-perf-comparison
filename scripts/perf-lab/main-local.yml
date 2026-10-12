@@ -1,0 +1,58 @@
+# Uses the working checkout directly; never clones or removes it.
+name: spring-quarkus-perf-comparison-local
+scripts:
+  local-update-state:
+    - set-state: RUN.BASE_DIR ${{config.local.run_dir}}
+    - set-state: RUN.REPO_DIR ${{config.local.run_dir}}
+    - set-state: RUN.PROJ_REPO_DIR ${{config.local.checkout}}
+    - set-state: RUN.HYPERFOIL_LOGS_DIR ${{REPO_DIR}}/logs/hyperfoil
+    - set-state: RUN.SCRIPTS_DIR ${{PROJ_REPO_DIR}}/scripts/perf-lab
+    - set-state: RUN.LOAD_TESTS_SCRIPTS_DIR ${{SCRIPTS_DIR}}/load-tests
+    - set-state: RUN.HELPER_SCRIPTS_DIR ${{SCRIPTS_DIR}}/scripts
+    - set-state: RUN.SPRING3_BOOT_DIR ${{PROJ_REPO_DIR}}/springboot3
+    - set-state: RUN.SPRING4_BOOT_DIR ${{PROJ_REPO_DIR}}/springboot4
+    - set-state: RUN.QUARKUS3_DIR ${{PROJ_REPO_DIR}}/quarkus3
+    - set-state: RUN.QUARKUS3_VIRTUAL_DIR ${{PROJ_REPO_DIR}}/quarkus3-virtual
+    - set-state: RUN.BUILDS_DIR ${{REPO_DIR}}/builds
+    - set-state: RUN.ASYNC_PROFILER_DIR ${{REPO_DIR}}/${{ASYNC_PROFILER}}
+    - set-state: RUN.METRICS_DIR ${{REPO_DIR}}
+
+  local-system-info:
+    - sh: uname -r
+    - set-state: RUN.env.host.kernel
+    - sh: . /etc/os-release; echo "$PRETTY_NAME"
+    - set-state: RUN.env.host.os
+    - sh: lscpu -e > "${{REPO_DIR}}/logs/lscpu.txt"
+    - queue-download: ${{REPO_DIR}}/logs/lscpu.txt
+    - sh: git -C "${{PROJ_REPO_DIR}}" status --porcelain > "${{REPO_DIR}}/logs/checkout-status.txt"
+    - queue-download: ${{REPO_DIR}}/logs/checkout-status.txt
+    - set-state: RUN.config.run.locally true
+    - set-state: RUN.config.repo.url ${{PROJ_REPO_DIR}}
+    - sh: git -C "${{PROJ_REPO_DIR}}" branch --show-current
+    - set-state: RUN.config.repo.branch
+
+  local-java:
+    - sh: export JAVA_HOME="${{config.jvm.home}}"
+    - sh: export PATH="$JAVA_HOME/bin:$PATH"
+    - sh: export GRAALVM_HOME="${{config.jvm.graalvm.home}}"
+
+hosts:
+  target-host: LOCAL
+roles:
+  test-runner:
+    hosts:
+      - target-host
+    setup-scripts:
+      - local-update-state
+      - config-env
+      - detect-os
+      - local-java
+      - local-system-info
+      - capture-repo-info
+      - start-timestamp
+    run-scripts:
+      - run-tests
+    cleanup-scripts:
+      - stop-timestamp
+      - download-metrics
+      - stop-test-services

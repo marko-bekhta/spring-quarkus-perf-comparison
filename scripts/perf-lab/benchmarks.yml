@@ -1,0 +1,895 @@
+name: spring-quarkus-perf-comparison
+states:
+  env.run.host.user: someuser
+  env.run.host.name: 127.0.0.1
+  env.run.host.target: ${{env.run.host.user}}@${{env.run.host.name}}
+
+  # Units
+  config.units.timings.build: sec
+  config.units.timings.startup: ms
+  config.units.rss.startup: MiB
+  config.units.rss.firstRequest: MiB
+  config.units.rss.load: MiB
+  config.units.load.throughput: tps
+  config.units.load.throughputDensity: tps per MiB
+  config.units.load.errors.connectionErrors: absolute number
+  config.units.load.errors.requestTimeouts: absolute number
+
+  config.jvm.home: #/path/to/java
+  config.jvm.version: 25.0.2-tem
+  config.jvm.graalvm.home: #/path/to/graalvm
+  config.jvm.graalvm.version: 25.0.2-graalce
+
+  config.quarkus.version: #3.28.3
+  config.springboot3.version: #3.5.6
+  config.springboot4.version: #4.0.0
+
+  config.jvm.memory: #-Xmx128m
+  config.jvm.args: -XX:+UseParallelGC #-XX:+UseNUMA
+  config.quarkus.build_config_args: 
+
+  config.quarkus.native_build_options: #-Dquarkus.native.native-image-xmx=<maximum_memory>
+  config.springboot3.native_build_options:
+  config.springboot4.native_build_options:
+
+  config.run.locally: false
+  config.run.dropOsFilesystemCaches: false
+  config.run.useContainerHostNetwork: false
+
+  config.resources.cpu.app: 0-3
+  config.resources.cpu.db: 4-6
+  config.resources.cpu.load_generator: 7-9
+  config.resources.cpu.1st_request: 10
+  config.resources.cpu.monitor: 11
+  config.resources.cpu.otel: 12-14
+
+  config.profiler.name: none #jfr syncjfr flamegraph
+  config.profiler.events: cpu
+
+  config.repo.branch: main
+  config.repo.url: https://github.com/quarkusio/spring-quarkus-perf-comparison.git
+
+  config.num_iterations: 3
+
+  APP_CMD_PREFIX: taskset --cpu-list ${{config.resources.cpu.app}}
+  LOAD_GEN_CMD_PREFIX: taskset --cpu-list ${{config.resources.cpu.load_generator}}
+  MONITOR_CMD_PREFIX: taskset --cpu-list ${{config.resources.cpu.monitor}}
+  RUN.WRK_BIN: ${{LOAD_GEN_CMD_PREFIX}} jbang -R -XX:+UseNUMA wrk@hyperfoil
+
+  PAUSE_TIME: 5
+  PROFILER_JVM_ARGS:
+  BASE_JAVA_CMD: ${{APP_CMD_PREFIX}} java ${{config.jvm.memory}} ${{config.jvm.args}} ${{PROFILER_JVM_ARGS}}
+  TESTS : [measure-time-to-first-request, measure-rss, run-load-test]
+  RUNTIMES: [quarkus3-jvm, quarkus3-virtual, quarkus3-native, spring3-jvm, spring3-virtual, spring3-native, spring4-jvm, spring4-virtual, spring4-native]
+  TARGET_URL: http://localhost:8080/fruits
+  QUARKUS-PLATFORM-ARTIFACT-ID: quarkus-bom
+  PROJ_REPO_NAME: spring-quarkus-perf-comparison
+  METRICS_DIR: /tmp
+  ASYNC_PROFILER: async-profiler
+  RUNTIMECMDS:
+    - name: quarkus3-jvm
+      type: jvm
+      dir: ${{QUARKUS3_DIR}}
+      updateScript: update-quarkus-version
+      updateVersion: ${{config.quarkus.version}}
+      buildRequiresTestServices: false
+      buildCmd: "${{APP_CMD_PREFIX}} ./mvnw ${{config.quarkus.build_config_args}} clean package -DskipTests"
+      runCmd: "${{BASE_JAVA_CMD}} -jar ${{RUNTIME_BUILD_DIR}}/quarkus-app/quarkus-run.jar"
+      logFileStartedRegex: ".*quarkus3.+started in.*"
+    - name: quarkus3-leyden
+      type: jvm
+      dir: ${{QUARKUS3_DIR}}
+      updateScript: update-quarkus-version
+      updateVersion: ${{config.quarkus.version}}
+      buildRequiresTestServices: false
+      buildCmd: "${{APP_CMD_PREFIX}} ./mvnw ${{config.quarkus.build_config_args}} clean verify -Dquarkus.package.jar.aot.enabled=true -Dsurefire.excludes='**/*'"
+      runCmd: "${{BASE_JAVA_CMD}} -XX:AOTCache=${{RUNTIME_BUILD_DIR}}/quarkus-app/app.aot -jar ${{RUNTIME_BUILD_DIR}}/quarkus-app/quarkus-run.jar"
+      logFileStartedRegex: ".*quarkus3.+started in.*"
+    - name: quarkus3-virtual
+      type: jvm
+      dir: ${{QUARKUS3_VIRTUAL_DIR}}
+      updateScript: update-quarkus-version
+      updateVersion: ${{config.quarkus.version}}
+      buildRequiresTestServices: false
+      buildCmd: "${{APP_CMD_PREFIX}} ./mvnw ${{config.quarkus.build_config_args}} clean package -DskipTests"
+      runCmd: "${{BASE_JAVA_CMD}} -jar ${{RUNTIME_BUILD_DIR}}/quarkus-app/quarkus-run.jar"
+      logFileStartedRegex: ".*quarkus3.+started in.*"
+    - name: quarkus3-virtual-leyden
+      type: jvm
+      dir: ${{QUARKUS3_VIRTUAL_DIR}}
+      updateScript: update-quarkus-version
+      updateVersion: ${{config.quarkus.version}}
+      buildRequiresTestServices: false
+      buildCmd: "${{APP_CMD_PREFIX}} ./mvnw ${{config.quarkus.build_config_args}} clean verify -Dquarkus.package.jar.aot.enabled=true -Dsurefire.excludes='**/*'"
+      runCmd: "${{BASE_JAVA_CMD}} -XX:AOTCache=${{RUNTIME_BUILD_DIR}}/quarkus-app/app.aot -jar ${{RUNTIME_BUILD_DIR}}/quarkus-app/quarkus-run.jar"
+      logFileStartedRegex: ".*quarkus3.+started in.*"
+    - name: quarkus3-native
+      type: native
+      dir: ${{QUARKUS3_DIR}}
+      updateScript: update-quarkus-version
+      updateVersion: ${{config.quarkus.version}}
+      buildRequiresTestServices: false
+      buildCmd: "${{APP_CMD_PREFIX}} ./mvnw ${{config.quarkus.build_config_args}} clean package -DskipTests -Pnative ${{config.quarkus.native_build_options}}"
+      runCmd: "${{APP_CMD_PREFIX}} ${{RUNTIME_BUILD_DIR}}/quarkus3-runner ${{config.jvm.memory}}"
+      logFileStartedRegex: ".*quarkus3.+started in.*"
+    - name: spring3-jvm
+      type: jvm
+      dir: ${{SPRING3_BOOT_DIR}}
+      updateScript: update-spring-boot-version
+      updateVersion: ${{config.springboot3.version}}
+      buildRequiresTestServices: false
+      buildCmd: "${{APP_CMD_PREFIX}} ./mvnw clean package -DskipTests"
+      runCmd: "${{BASE_JAVA_CMD}} -jar ${{RUNTIME_BUILD_DIR}}/springboot3.jar"
+      logFileStartedRegex: ".*Started SpringBoot3Application in.+seconds.*"
+    - name: spring3-leyden
+      type: jvm
+      dir: ${{SPRING3_BOOT_DIR}}
+      updateScript: update-spring-boot-version
+      updateVersion: ${{config.springboot3.version}}
+      buildRequiresTestServices: true
+      buildCmd: "./mvnw clean package -DskipTests && java -Djarmode=tools -jar ${{SPRING3_BOOT_DIR}}/target/springboot3.jar extract --destination ${{SPRING3_BOOT_DIR}}/target/aot-app && java -XX:AOTCacheOutput=${{SPRING3_BOOT_DIR}}/target/app.aot -Dspring.context.exit=onRefresh -jar ${{SPRING3_BOOT_DIR}}/target/springboot3.jar"
+      runCmd: "${{BASE_JAVA_CMD}} -XX:AOTCache=${{RUNTIME_BUILD_DIR}}/app.aot -jar ${{RUNTIME_BUILD_DIR}}/springboot3.jar"
+      logFileStartedRegex: ".*Started SpringBoot3Application in.+seconds.*"
+    - name: spring3-virtual
+      type: jvm
+      dir: ${{SPRING3_BOOT_DIR}}
+      updateScript: update-spring-boot-version
+      updateVersion: ${{config.springboot3.version}}
+      buildRequiresTestServices: false
+      buildCmd: "${{APP_CMD_PREFIX}} ./mvnw clean package -DskipTests -Dspring.threads.virtual.enabled=true"
+      runCmd: "${{BASE_JAVA_CMD}} -Dspring.threads.virtual.enabled=true -jar ${{RUNTIME_BUILD_DIR}}/springboot3.jar"
+      logFileStartedRegex: ".*Started SpringBoot3Application in.+seconds.*"
+    - name: spring3-virtual-leyden
+      type: jvm
+      dir: ${{SPRING3_BOOT_DIR}}
+      updateScript: update-spring-boot-version
+      updateVersion: ${{config.springboot3.version}}
+      buildRequiresTestServices: true
+      buildCmd: "./mvnw clean package -DskipTests -Dspring.threads.virtual.enabled=true && java -Djarmode=tools -jar ${{SPRING3_BOOT_DIR}}/target/springboot3.jar extract --destination ${{SPRING3_BOOT_DIR}}/target/aot-app && java -XX:AOTCacheOutput=${{SPRING3_BOOT_DIR}}/target/app.aot -Dspring.context.exit=onRefresh -Dspring.threads.virtual.enabled=true -jar ${{SPRING3_BOOT_DIR}}/target/springboot3.jar"
+      runCmd: "${{BASE_JAVA_CMD}} -XX:AOTCache=${{RUNTIME_BUILD_DIR}}/app.aot -Dspring.threads.virtual.enabled=true -jar ${{RUNTIME_BUILD_DIR}}/springboot3.jar"
+      logFileStartedRegex: ".*Started SpringBoot3Application in.+seconds.*"
+    - name: spring3-jvm-aot
+      type: jvm
+      dir: ${{SPRING3_BOOT_DIR}}
+      updateScript: update-spring-boot-version
+      updateVersion: ${{config.springboot3.version}}
+      buildRequiresTestServices: false
+      buildCmd: "${{APP_CMD_PREFIX}} ./mvnw clean compile spring-boot:process-aot package -DskipTests"
+      runCmd: "${{BASE_JAVA_CMD}} -Dspring.aot.enabled=true -jar ${{RUNTIME_BUILD_DIR}}/springboot3.jar"
+      logFileStartedRegex: ".*Started SpringBoot3Application in.+seconds.*"
+    - name: spring3-native
+      type: native
+      dir: ${{SPRING3_BOOT_DIR}}
+      updateScript: update-spring-boot-version
+      updateVersion: ${{config.springboot3.version}}
+      buildRequiresTestServices: false
+      buildCmd: "${{APP_CMD_PREFIX}} ./mvnw clean -Pnative -DskipTests native:compile package ${{config.springboot3.native_build_options}}"
+      runCmd: "${{APP_CMD_PREFIX}} ${{RUNTIME_BUILD_DIR}}/springboot3 ${{config.jvm.memory}}"
+      logFileStartedRegex: ".*Started SpringBoot3Application in.+seconds.*"
+    - name: spring4-jvm
+      type: jvm
+      dir: ${{SPRING4_BOOT_DIR}}
+      updateScript: update-spring-boot-version
+      updateVersion: ${{config.springboot4.version}}
+      buildRequiresTestServices: false
+      buildCmd: "${{APP_CMD_PREFIX}} ./mvnw clean package -DskipTests"
+      runCmd: "${{BASE_JAVA_CMD}} -jar ${{RUNTIME_BUILD_DIR}}/springboot4.jar"
+      logFileStartedRegex: ".*Started SpringBoot4Application in.+seconds.*"
+    - name: spring4-leyden
+      type: jvm
+      dir: ${{SPRING4_BOOT_DIR}}
+      updateScript: update-spring-boot-version
+      updateVersion: ${{config.springboot4.version}}
+      buildRequiresTestServices: true
+      buildCmd: "./mvnw clean package -DskipTests && java -Djarmode=tools -jar ${{SPRING4_BOOT_DIR}}/target/springboot4.jar extract --destination ${{SPRING4_BOOT_DIR}}/target/aot-app && java -XX:AOTCacheOutput=${{SPRING4_BOOT_DIR}}/target/app.aot -Dspring.context.exit=onRefresh -jar ${{SPRING4_BOOT_DIR}}/target/springboot4.jar"
+      runCmd: "${{BASE_JAVA_CMD}} -XX:AOTCache=${{RUNTIME_BUILD_DIR}}/app.aot -jar ${{RUNTIME_BUILD_DIR}}/springboot4.jar"
+      logFileStartedRegex: ".*Started SpringBoot4Application in.+seconds.*"
+    - name: spring4-virtual
+      type: jvm
+      dir: ${{SPRING4_BOOT_DIR}}
+      updateScript: update-spring-boot-version
+      updateVersion: ${{config.springboot4.version}}
+      buildRequiresTestServices: false
+      buildCmd: "${{APP_CMD_PREFIX}} ./mvnw clean package -DskipTests -Dspring.threads.virtual.enabled=true"
+      runCmd: "${{BASE_JAVA_CMD}} -Dspring.threads.virtual.enabled=true -jar ${{RUNTIME_BUILD_DIR}}/springboot4.jar"
+      logFileStartedRegex: ".*Started SpringBoot4Application in.+seconds.*"
+    - name: spring4-virtual-leyden
+      type: jvm
+      dir: ${{SPRING4_BOOT_DIR}}
+      updateScript: update-spring-boot-version
+      updateVersion: ${{config.springboot4.version}}
+      buildRequiresTestServices: true
+      buildCmd: "./mvnw clean package -DskipTests -Dspring.threads.virtual.enabled=true && java -Djarmode=tools -jar ${{SPRING4_BOOT_DIR}}/target/springboot4.jar extract --destination ${{SPRING4_BOOT_DIR}}/target/aot-app && java -XX:AOTCacheOutput=${{SPRING4_BOOT_DIR}}/target/app.aot -Dspring.threads.virtual.enabled=true -Dspring.context.exit=onRefresh -jar ${{SPRING4_BOOT_DIR}}/target/springboot4.jar"
+      runCmd: "${{BASE_JAVA_CMD}} -XX:AOTCache=${{RUNTIME_BUILD_DIR}}/app.aot -Dspring.threads.virtual.enabled=true -jar ${{RUNTIME_BUILD_DIR}}/springboot4.jar"
+      logFileStartedRegex: ".*Started SpringBoot4Application in.+seconds.*"
+    - name: spring4-jvm-aot
+      type: jvm
+      dir: ${{SPRING4_BOOT_DIR}}
+      updateScript: update-spring-boot-version
+      updateVersion: ${{config.springboot4.version}}
+      buildRequiresTestServices: false
+      buildCmd: "${{APP_CMD_PREFIX}} ./mvnw clean compile spring-boot:process-aot package -DskipTests"
+      runCmd: "${{BASE_JAVA_CMD}} -Dspring.aot.enabled=true -jar ${{RUNTIME_BUILD_DIR}}/springboot4.jar"
+      logFileStartedRegex: ".*Started SpringBoot4Application in.+seconds.*"
+    - name: spring4-native
+      type: native
+      dir: ${{SPRING4_BOOT_DIR}}
+      updateScript: update-spring-boot-version
+      updateVersion: ${{config.springboot4.version}}
+      buildRequiresTestServices: false
+      buildCmd: "${{APP_CMD_PREFIX}} ./mvnw clean -Pnative -DskipTests native:compile package ${{config.springboot4.native_build_options}}"
+      runCmd: "${{APP_CMD_PREFIX}} ${{RUNTIME_BUILD_DIR}}/springboot4 ${{config.jvm.memory}}"
+      logFileStartedRegex: ".*Started SpringBoot4Application in.+seconds.*"
+
+scripts:
+  update-state:
+    - sh: echo $(realpath ~)
+    - set-state: RUN.BASE_DIR
+    - set-state: RUN.REPO_DIR ${{BASE_DIR}}/spring-quarkus-perf-comparison
+    - set-state: RUN.HYPERFOIL_LOGS_DIR ${{REPO_DIR}}/logs/hyperfoil
+    - set-state: RUN.PROJ_REPO_DIR ${{REPO_DIR}}/${{PROJ_REPO_NAME}}
+    - set-state: RUN.SCRIPTS_DIR ${{PROJ_REPO_DIR}}/scripts/perf-lab
+    - set-state: RUN.LOAD_TESTS_SCRIPTS_DIR ${{SCRIPTS_DIR}}/load-tests
+    - set-state: RUN.HELPER_SCRIPTS_DIR ${{SCRIPTS_DIR}}/scripts
+    - set-state: RUN.SPRING3_BOOT_DIR ${{PROJ_REPO_DIR}}/springboot3
+    - set-state: RUN.SPRING4_BOOT_DIR ${{PROJ_REPO_DIR}}/springboot4
+    - set-state: RUN.QUARKUS3_DIR ${{PROJ_REPO_DIR}}/quarkus3
+    - set-state: RUN.QUARKUS3_VIRTUAL_DIR ${{PROJ_REPO_DIR}}/quarkus3-virtual
+    - set-state: RUN.BUILDS_DIR ${{PROJ_REPO_DIR}}/builds
+    - set-state: RUN.ASYNC_PROFILER_DIR ${{BASE_DIR}}/${{ASYNC_PROFILER}}
+
+  output-vars:
+    - log: |
+        "Config: ${{config}}"
+        "ENV: ${{env}}"
+        "BASE_DIR: ${{BASE_DIR}}"
+        "REPO_DIR: ${{REPO_DIR}}"
+        "HYPERFOIL_LOGS_DIR: ${{HYPERFOIL_LOGS_DIR}}"
+        "SCRIPTS_DIR: ${{SCRIPTS_DIR}}"
+        "SPRING3_BOOT_DIR: ${{SPRING3_BOOT_DIR}}"
+        "SPRING4_BOOT_DIR: ${{SPRING4_BOOT_DIR}}"
+        "QUARKUS3_DIR : ${{QUARKUS3_DIR}}"
+        "QUARKUS3_VIRTUAL_DIR : ${{QUARKUS3_VIRTUAL_DIR}}"
+        "RUNTIMECMDS: ${{RUNTIMECMDS}}"
+
+  capture-repo-info:
+    - sh: cd ${{PROJ_REPO_DIR}}
+    - sh: git rev-parse HEAD
+    - set-state: RUN.config.repo.commit
+    - sh: git rev-parse --short HEAD
+    - set-state: RUN.config.repo.short_commit
+    - read-state: ${{config.repo.scenario}}
+      then:
+        - regex: ootb
+          then:
+            - set-state:
+                key: RUN.config.repo.scenarioName
+                value: Out of the box
+          else:
+            - regex: tuned
+              then:
+                - set-state:
+                    key: RUN.config.repo.scenarioName
+                    value: Tuned
+              else:
+                - set-state:
+                    key: RUN.config.repo.scenarioName
+                    value: ${{config.repo.scenario}}
+
+  cleanup-env:
+    - sh: '[ -e "${{REPO_DIR}}/.git" ] && echo checkout || echo workspace'
+      then:
+        - regex: checkout
+          then:
+            - abort: Refusing to delete an existing checkout. Use --locally or move the checkout out of the lab workspace.
+    - sh: rm -Rf ${{PROJ_REPO_DIR}}
+
+  config-env:
+    - sh: rm -Rf ${{REPO_DIR}}/logs
+    - sh: mkdir -p ${{REPO_DIR}}/logs
+    - sh: mkdir -p ${{HYPERFOIL_LOGS_DIR}}
+
+  clone-repo:
+    - sh: '[ -e "${{REPO_DIR}}/.git" ] && echo checkout || echo workspace'
+      then:
+        - regex: checkout
+          then:
+            - abort: Refusing to delete an existing checkout. Use --locally or move the checkout out of the lab workspace.
+    - sh: rm -Rf ${{REPO_DIR}}
+    - sh: mkdir -p ${{REPO_DIR}}/logs
+    - sh: cd ${{REPO_DIR}}
+    - log: "Repository url: ${{config.repo.url}}"
+    # Check if config.repo.url is a folder then copy to REPO_DIR
+    # It allows you to make changes locally without push to a remote repository
+    - sh: "[ -d \"${{config.repo.url}}\" ] && echo true || echo false"
+      then:
+        - regex: true
+          then:
+          - sh: cp -R ${{config.repo.url}} ${{REPO_DIR}}
+        - regex: false
+          then:
+          - log: Cloning project repo ${{config.repo.branch}}@${{config.repo.url}}
+          - sh: git clone -b ${{config.repo.branch}} ${{config.repo.url}}
+          - sh: cd ${{PROJ_REPO_NAME}}
+          - log: Checked out repo
+          - sh: git remote get-url origin
+          - sh: git branch --show-current
+
+  update-runtime-version:
+    - sh: cd "${{RUNTIMECMD.dir}}"
+    - read-state: "${{RUNTIMECMD.updateVersion:}}"
+      then:
+        - regex: ^$
+          then:
+            - log: Using the framework version in the checkout
+          else:
+            - log: "Updating version: ${{RUNTIMECMD.updateVersion}}"
+            - script: ${{RUNTIMECMD.updateScript:abort-script-not-found}}
+              with:
+                DIR: ${{RUNTIMECMD.dir}}
+                VERSION: ${{RUNTIMECMD.updateVersion}}
+    # Pre-download dependencies to exclude them from build timing.
+    - sh: ./mvnw dependency:go-offline
+
+  build-and-cache-runtime:
+    - script: measure-build-times
+      with:
+        RUNTIMECMD: ${{RUNTIMECMD}}
+    - sh: rm -rf ${{BUILDS_DIR}}/${{RUNTIMECMD.name}}
+    - sh: cp -a ${{RUNTIMECMD.dir}}/target ${{BUILDS_DIR}}/${{RUNTIMECMD.name}}
+
+  run-tests-for-runtime:
+    - log: "Testing: ${{RUNTIMECMD.name}}"
+    - for-each: TEST ${{TESTS}}
+      then:
+        - script: ${{TEST}}
+          with:
+            RUNTIME_BUILD_DIR: ${{BUILDS_DIR}}/${{RUNTIMECMD.name}}
+            RUNTIMECMD: ${{RUNTIMECMD}}
+
+  update-spring-boot-version:
+    - script: check-dependency-exists
+      with:
+        groupId: org.springframework.boot
+        artifactId: spring-boot-starter-parent
+        version: ${{VERSION}}
+    - sh: ./mvnw versions:update-parent "-DparentVersion=[${{VERSION}}]" -DskipResolution=true
+
+  update-quarkus-version:
+    - script: check-dependency-exists
+      with:
+        groupId: io.quarkus.platform
+        artifactId: quarkus-bom
+        version: ${{VERSION}}
+    - sh: ./mvnw versions:set-property -Dproperty=quarkus.platform.version -DnewVersion=${{VERSION}}
+
+  start-test-services:
+    - sh: "${{PROJ_REPO_DIR}}/scripts/infra.sh ${{= ${{config.run.locally:false}} ? '' : '-c 3 -l 3'}} -p '${{config.resources.cpu.db}}' -g '${{config.resources.cpu.otel}}' -s ${{= ${{config.run.useContainerHostNetwork:false}} ? '-n' : ''}}"
+      watch:
+        - regex: "Error: PostgreSQL failed to become ready"
+          then:
+            - abort: PostgreSQL failed to become ready
+        - regex: "Error: Otel LGTM failed to become ready"
+          then:
+            - abort: Otel LGTM failed to become ready
+    - sh: echo $?
+      then:
+        - regex: "^0$"
+          else:
+            - abort: start-test-services (infra.sh) failed with a non-zero exit code
+
+  capture-otel-data:
+    - sh: ${{PROJ_REPO_DIR}}/scripts/lookup_otel_service.sh > ${{REPO_DIR}}/logs/otel-${{RUNTIMECMD.name}}-${{ITERATION}}.log 2>&1
+    - queue-download: ${{REPO_DIR}}/logs/otel-${{RUNTIMECMD.name}}-${{ITERATION}}.log
+
+  stop-test-services:
+    - sh: ${{PROJ_REPO_DIR}}/scripts/infra.sh -d
+
+  run-tests:
+    - sh: java -version
+    - sh: echo $$
+    - set-state: RUN.SHELL_PID
+    - sh: mkdir -p ${{BUILDS_DIR}}
+
+    # Phase 1: Build all runtimes upfront and cache artifacts
+    # Separate into 2 phases so we capture any build failures early on
+    # and don't proceed with testing runtimes that fail to build
+    - for-each: RUNTIME ${{RUNTIMES}}
+      then:
+        - set-state: RUNTIMECMD ${{RUNTIMECMDS[?(@.name == '${{RUNTIME}}')]}}
+        - script: update-runtime-version
+          with:
+            RUNTIMECMD: ${{RUNTIMECMD}}
+        - script: build-and-cache-runtime
+          with:
+            RUNTIMECMD: ${{RUNTIMECMD}}
+
+    # Phase 2: Run tests for all runtimes using cached builds
+    - for-each: RUNTIME ${{RUNTIMES}}
+      then:
+        - set-state: RUNTIMECMD ${{RUNTIMECMDS[?(@.name == '${{RUNTIME}}')]}}
+        - script: run-tests-for-runtime
+          with:
+            RUNTIMECMD: ${{RUNTIMECMD}}
+
+  abort-script-not-found:
+    - abort: script not found
+
+  measure-build-times:
+    - log: Build times
+    - sh: cd ${{RUNTIMECMD.dir}}
+    - log: JVM version
+    - sh: java -version
+    - read-state: ${{RUNTIMECMD.type}}
+      then:
+        - regex: native
+          then:
+            - log: GraalVM Version
+            - sh: $GRAALVM_HOME/bin/java -version
+    - set-state: TYPE ${{RUNTIMECMD.type}}
+    - for-each: ITERATION ${{=[...Array(${{config.num_iterations}}).keys()]}}
+      then:
+        - queue-download: ${{REPO_DIR}}/logs/build-times-${{RUNTIMECMD.name}}-${{ITERATION}}.log
+        - read-state: ${{RUNTIMECMD.buildRequiresTestServices}}
+          then:
+            - regex: "true"
+              then:
+                - script: start-test-services
+        - script: sync-drop-fs-cache
+        - sh: /usr/bin/time -p sh -c '${{RUNTIMECMD.buildCmd}}' 2>&1 >${{REPO_DIR}}/logs/build-times-${{RUNTIMECMD.name}}-${{ITERATION}}.log | grep real | awk '{print $2}'
+        - set-state: BUILD_TIME
+        - sh: cat ${{REPO_DIR}}/logs/build-times-${{RUNTIMECMD.name}}-${{ITERATION}}.log
+          then:
+            - regex: "BUILD FAILURE"
+              then:
+                - abort: Build failed for ${{RUNTIMECMD.name}} iteration ${{ITERATION}}. Check ${{REPO_DIR}}/logs/build-times-${{RUNTIMECMD.name}}-${{ITERATION}}.log for details.
+        - script: state-array-push
+          with:
+            array: RUN.output.results.${{RUNTIMECMD.name}}.build.timings
+            value: ${{BUILD_TIME}}
+        - read-state: ${{RUNTIMECMD.buildRequiresTestServices}}
+          then:
+            - regex: "true"
+              then:
+                - script: stop-test-services
+
+        # If its a native build, gather the native build rss as well
+        - read-state: ${{TYPE}}
+          then:
+            - regex: native
+              then:
+                - sh: "sed -n 's/.*Peak RSS: \\([0-9.]*\\)\\(GB\\|GiB\\).*/\\1/p' ${{REPO_DIR}}/logs/build-times-${{RUNTIMECMD.name}}-${{ITERATION}}.log"
+                  then:
+                    - set-state: NATIVE_BUILD_RSS
+                - script: state-array-push
+                  with:
+                    array: RUN.output.results.${{RUNTIMECMD.name}}.build.native.rss
+                    value: ${{NATIVE_BUILD_RSS}}
+    - script: state-array-calc-avg
+      with:
+        var-name: RUN.output.results.${{RUNTIMECMD.name}}.build.avBuildTime
+        array: RUN.output.results.${{RUNTIMECMD.name}}.build.timings
+
+    - read-state: ${{TYPE}}
+      then:
+        - regex: native
+          then:
+            # Capture average native build RSS
+            - script: state-array-calc-avg
+              with:
+                var-name: RUN.output.results.${{RUNTIMECMD.name}}.build.avNativeRSS
+                array: RUN.output.results.${{RUNTIMECMD.name}}.build.native.rss
+
+            # The following metrics should be the same in all test iterations, so just pick the 1st
+            # Capture the binary size
+            - sh: "sed -n 's/^[[:space:]]*\\([0-9.]*\\)\\(MB\\|MiB\\) in total image size.*/\\1/p' ${{REPO_DIR}}/logs/build-times-${{RUNTIMECMD.name}}-0.log"
+              then:
+                - set-state: RUN.output.results.${{RUNTIMECMD.name}}.build.native.binarySize
+
+            # Capture the number of classes
+            - sh: "cat ${{REPO_DIR}}/logs/build-times-${{RUNTIMECMD.name}}-0.log | grep \"types.*fields.*methods found reachable\" | awk '{print $1}'"
+              then:
+                - set-state: RUN.output.results.${{RUNTIMECMD.name}}.build.classCount
+
+            # Capture the number of fields
+            - sh: "cat ${{REPO_DIR}}/logs/build-times-${{RUNTIMECMD.name}}-0.log | grep \"types.*fields.*methods found reachable\" | awk '{print $3}'"
+              then:
+                - set-state: RUN.output.results.${{RUNTIMECMD.name}}.build.fieldCount
+
+            # Capture the number of methods
+            - sh: "cat ${{REPO_DIR}}/logs/build-times-${{RUNTIMECMD.name}}-0.log | grep \"types.*fields.*methods found reachable\" | awk '{print $6}'"
+              then:
+                - set-state: RUN.output.results.${{RUNTIMECMD.name}}.build.methodCount
+
+            # Capture the number of classes registered for reflection
+            - sh: "cat ${{REPO_DIR}}/logs/build-times-${{RUNTIMECMD.name}}-0.log | grep \"types.*fields.*methods registered for reflection\" | awk '{print $1}'"
+              then:
+                - set-state: RUN.output.results.${{RUNTIMECMD.name}}.build.reflectionClassCount
+
+            # Capture the number of fields registered for reflection
+            - sh: "cat ${{REPO_DIR}}/logs/build-times-${{RUNTIMECMD.name}}-0.log | grep \"types.*fields.*methods registered for reflection\" | awk '{print $3}'"
+              then:
+                - set-state: RUN.output.results.${{RUNTIMECMD.name}}.build.reflectionFieldCount
+
+            # Capture the number of methods registered for reflection
+            - sh: "cat ${{REPO_DIR}}/logs/build-times-${{RUNTIMECMD.name}}-0.log | grep \"types.*fields.*methods registered for reflection\" | awk '{print $6}'"
+              then:
+                - set-state: RUN.output.results.${{RUNTIMECMD.name}}.build.reflectionMethodCount
+
+  measure-time-to-first-request:
+    - log: Measuring Time to first request
+    - sh: java -version
+    - sh: cd ${{RUNTIMECMD.dir}}
+    - for-each: ITERATION ${{=[...Array(${{config.num_iterations}}).keys()]}}
+      then:
+        - queue-download: ${{REPO_DIR}}/logs/measure-time-to-first-request-${{RUNTIMECMD.name}}-${{ITERATION}}.log
+        - script: start-test-services
+        - script: sync-drop-fs-cache
+        - sh: timeout 60s bash -c "taskset --cpu-list ${{config.resources.cpu.1st_request}} ${{HELPER_SCRIPTS_DIR}}/time-to-1st-request.sh '${{RUNTIMECMD.runCmd}}' '${{TARGET_URL}}' '${{REPO_DIR}}/logs/measure-time-to-first-request-${{RUNTIMECMD.name}}-${{ITERATION}}.log'"
+          then:
+            - regex: Terminated
+              then:
+                - abort: Run ${{RUNTIMECMD.runCmd}} didn't start within allotted timeout
+            - regex: TTFR=(?<nanoseconds>\\d+) ns
+              then:
+                - set-state: START_TIME ${{= ${{nanoseconds}} / 1000000 }}
+              else:
+                - abort: Timeout script returned invalid output
+        - script: state-array-push
+          with:
+            array: RUN.output.results.${{RUNTIMECMD.name}}.startup.timings
+            value: ${{START_TIME}}
+        - sh: sleep ${{PAUSE_TIME}}
+        - script: stop-test-services
+    - script: state-array-calc-avg
+      with:
+        var-name: RUN.output.results.${{RUNTIMECMD.name}}.startup.avStartTime
+        array: RUN.output.results.${{RUNTIMECMD.name}}.startup.timings
+
+  measure-rss:
+    - log: Measuring RSS
+    - sh: java -version
+    - sh: cd ${{RUNTIMECMD.dir}}
+    - for-each: ITERATION ${{=[...Array(${{config.num_iterations}}).keys()]}}
+      then:
+        - queue-download: ${{REPO_DIR}}/logs/measure-rss-${{RUNTIMECMD.name}}-${{ITERATION}}.log
+        - script: start-test-services
+        - script: sync-drop-fs-cache
+        - sh: ${{RUNTIMECMD.runCmd}} &>${{REPO_DIR}}/logs/measure-rss-${{RUNTIMECMD.name}}-${{ITERATION}}.log &
+        - sh: APP_PID=$!
+        - sh: sleep ${{PAUSE_TIME}}
+        - sh: pmap -x $APP_PID | grep total | awk '{print $4}'
+          then:
+            - set-state: RSS_STARTUP
+        - script: state-array-push
+          with:
+            array: RUN.output.results.${{RUNTIMECMD.name}}.rss.startup
+            value: ${{= ${{RSS_STARTUP}}/1024 }}
+        - sh: curl -s  ${{TARGET_URL}} > /dev/null
+        - sh: pmap -x $APP_PID | grep total | awk '{print $4}'
+          then:
+            - set-state: FIRST_REQUEST
+        - script: state-array-push
+          with:
+            array: RUN.output.results.${{RUNTIMECMD.name}}.rss.firstRequest
+            value: ${{= ${{FIRST_REQUEST}}/1024 }}
+        - sh: kill -15 $APP_PID
+        - sh: sleep ${{PAUSE_TIME}}
+        - script: stop-test-services
+    - script: state-array-calc-avg
+      with:
+        var-name: RUN.output.results.${{RUNTIMECMD.name}}.rss.avStartupRss
+        array: RUN.output.results.${{RUNTIMECMD.name}}.rss.startup
+    - script: state-array-calc-avg
+      with:
+        var-name: RUN.output.results.${{RUNTIMECMD.name}}.rss.avFirstRequestRss
+        array: RUN.output.results.${{RUNTIMECMD.name}}.rss.firstRequest
+
+  run-load-test:
+    - log: Running workload
+    - sh: cd ${{RUNTIMECMD.dir}}
+    - set-state: RUNTIME_NAME ${{RUNTIMECMD.name}}
+    - queue-download: ${{HYPERFOIL_LOGS_DIR}}
+    - set-state:
+        key: APP_LOG_REGEX
+        value: ${{RUNTIMECMD.logFileStartedRegex}}
+    - for-each: ITERATION ${{=[...Array(${{config.num_iterations}}).keys()]}}
+      then:
+        - set-state:
+            key: LOG_FILE
+            value: ${{REPO_DIR}}/logs/load-test-${{RUNTIME_NAME}}-${{ITERATION}}.log
+        - sh: touch ${{LOG_FILE}}
+        - sh: mkdir -p ${{HYPERFOIL_LOGS_DIR}}/${{RUNTIME_NAME}}-${{ITERATION}}
+        - queue-download: ${{REPO_DIR}}/logs/hf-${{RUNTIME_NAME}}-${{ITERATION}}.log
+        - queue-download: ${{LOG_FILE}}
+        - script: start-test-services
+        - script: sync-drop-fs-cache
+        - set-signal: LOAD_STEADY_STATE_START 1
+        - set-signal: LOG_REGEX_REACHED 1
+        - read-state: ${{config.profiler.name}}
+          then:
+            - regex: "^syncjfr$"
+              then:
+                - queue-download: ${{REPO_DIR}}/logs/jfr.${{RUNTIME_NAME}}-${{ITERATION}}.jfr
+                - sh: echo "${{RUNTIMECMD.runCmd}}" | sed 's#-jar#-XX:StartFlightRecording=filename=${{REPO_DIR}}/logs/jfr.${{RUNTIME_NAME}}-${{ITERATION}}.jfr,settings=profile,dumponexit=true -jar#'
+                  then:
+                    - set-state: SYNCJFR_RUN_CMD
+                - sh: ${{SYNCJFR_RUN_CMD}} &>${{LOG_FILE}} &
+              else:
+                - sh: ${{RUNTIMECMD.runCmd}} &>${{LOG_FILE}} &
+        - sh: PID=$!
+        - sh: echo $PID
+        - set-state: JVM_PID
+        - script: monitor-processes
+          with:
+            pid: ${{JVM_PID}}
+            log_dir: ${{REPO_DIR}}/logs
+            runtime_name: ${{RUNTIME_NAME}}
+            iteration: ${{ITERATION}}
+        - log: JVM_PID = ${{JVM_PID}}
+        - read-state: ${{config.profiler.name}}
+          then:
+            - regex: "^(jfr|flamegraph)$"
+              then:
+                - script: async-profiler-install
+                - script: async-profiler-configure
+                - set-state:
+                    key: PROFILER_LOGFILE
+                    value: "${{RUNTIME_NAME}}-${{ITERATION}}.${{= '${{config.profiler.name}}' == 'jfr' ? 'jfr' : 'html' }}"
+                - script:
+                    name: async-profiler-run
+                    async: true
+                  with:
+                    wait_start: LOAD_STEADY_STATE_START
+                    pid: ${{JVM_PID}}
+                    suffix: ${{PROFILER_LOGFILE}}
+                    format: ${{config.profiler.name}}
+                    events: ${{config.profiler.events}}
+                    delay: 5s
+        - script:
+            name: watch-log
+            async: true
+          with:
+            log_file: ${{LOG_FILE}}
+            log_regex: ${{APP_LOG_REGEX}}
+        - wait-for: LOG_REGEX_REACHED
+        - sh: |
+            ${{LOAD_GEN_CMD_PREFIX}} jbang \
+              -Dio.hyperfoil.rootdir=${{HYPERFOIL_LOGS_DIR}}/${{RUNTIME_NAME}}-${{ITERATION}} \
+              -Dio.hyperfoil.cpu.watchdog.idle.threshold=0.0 \
+              -R \
+              -XX:+UseNUMA \
+              run@hyperfoil \
+                -d ${{RUNTIME_NAME}}-${{ITERATION}} \
+                -o ${{HYPERFOIL_LOGS_DIR}}/${{RUNTIME_NAME}}-${{ITERATION}} \
+                ${{LOAD_TESTS_SCRIPTS_DIR}}/load-test-fixed-threads-read-all.hf.yml &>${{REPO_DIR}}/logs/hf-${{RUNTIME_NAME}}-${{ITERATION}}.log &
+        - sh: HF_PID=$! && echo $HF_PID
+          then:
+            - set-state: HF_PID
+        - script:
+            name: watch-hyperfoil-log
+            async: true
+          with:
+            log_file: ${{HYPERFOIL_LOGS_DIR}}/${{RUNTIME_NAME}}-${{ITERATION}}/hyperfoil.local.log
+        - script:
+            name: monitor-process
+            async: true
+          with:
+            name: pidstat
+            command: pidstat -u -w -t -p ${{HF_PID}} 1
+            log_file: ${{REPO_DIR}}/logs/pidstat-hf-${{RUNTIME_NAME}}-${{ITERATION}}.log
+        - sh: wait ${{HF_PID}}
+        - sh: cat ${{REPO_DIR}}/logs/hf-${{RUNTIME_NAME}}-${{ITERATION}}.log | grep "Started run" | awk '{print $3}'
+          then:
+            - set-state:
+                key: RUN_NUM
+                autoConvert: false
+        - sh: jq '.stats[] | select(.phase == "loadTest") | .total.summary' ${{HYPERFOIL_LOGS_DIR}}/${{RUNTIME_NAME}}-${{ITERATION}}/run/${{RUN_NUM}}/all.json
+          then:
+            - json: $.startTime
+              then:
+                - set-state: START_TIME
+              else:
+                - abort: Unable to find startTime in ${{HYPERFOIL_LOGS_DIR}}/${{RUNTIME_NAME}}-${{ITERATION}}/run/${{RUN_NUM}}/all.json
+            - json: $.endTime
+              then:
+                - set-state: END_TIME
+              else:
+                - abort: Unable to find endTime in ${{HYPERFOIL_LOGS_DIR}}/${{RUNTIME_NAME}}-${{ITERATION}}/run/${{RUN_NUM}}/all.json
+            - json: $.requestCount
+              then:
+                - set-state: REQUEST_COUNT
+              else:
+                - abort: Unable to find request count in ${{HYPERFOIL_LOGS_DIR}}/${{RUNTIME_NAME}}-${{ITERATION}}/run/${{RUN_NUM}}/all.json
+            - json: $.connectionErrors
+              then:
+                - set-state: CONNECTION_ERRORS
+              else:
+                - set-state: CONNECTION_ERRORS 0
+            - json: $.requestTimeouts
+              then:
+                - set-state: REQUEST_TIMEOUTS
+              else:
+                - set-state: REQUEST_TIMEOUTS 0
+            - json: $.invalid
+              then:
+                - set-state: TOTAL_APP_ERRORS
+              else:
+                - set-state: TOTAL_APP_ERRORS 0
+            - json: $.extensions.http.status_4xx
+              then:
+                - set-state: APP_4XX_ERRORS
+              else:
+                - set-state: APP_4XX_ERRORS 0
+            - json: $.extensions.http.status_5xx
+              then:
+                - set-state: APP_5XX_ERRORS
+              else:
+                - set-state: APP_5XX_ERRORS 0
+        - set-state:
+            key: THROUGHPUT
+            value: ${{= ${{REQUEST_COUNT}}/((${{END_TIME}}-${{START_TIME}})/1000) }}
+        - script: state-array-push
+          with:
+            array: RUN.output.results.${{RUNTIME_NAME}}.load.throughput
+            value: ${{THROUGHPUT}}
+        - script: state-array-push
+          with:
+            array: RUN.output.results.${{RUNTIME_NAME}}.load.connectionErrors
+            value: ${{CONNECTION_ERRORS}}
+        - script: state-array-push
+          with:
+            array: RUN.output.results.${{RUNTIME_NAME}}.load.requestTimeouts
+            value: ${{REQUEST_TIMEOUTS}}
+        - script: state-array-push
+          with:
+            array: RUN.output.results.${{RUNTIME_NAME}}.load.appErrors
+            value: ${{TOTAL_APP_ERRORS}}
+        - script: state-array-push
+          with:
+            array: RUN.output.results.${{RUNTIME_NAME}}.load.app4xxErrors
+            value: ${{APP_4XX_ERRORS}}
+        - script: state-array-push
+          with:
+            array: RUN.output.results.${{RUNTIME_NAME}}.load.app5xxErrors
+            value: ${{APP_5XX_ERRORS}}
+
+        - sh: pmap -x $PID | grep total | awk '{print $4}'
+          then:
+            - set-state: RSS
+        - script: state-array-push
+          with:
+            array: RUN.output.results.${{RUNTIME_NAME}}.load.rss
+            value: ${{= ${{RSS}}/1024 }}
+        - script: state-array-push
+          with:
+            array: RUN.output.results.${{RUNTIME_NAME}}.load.throughputDensity
+            value: ${{= ${{THROUGHPUT}}/${{RSS}}*1024 }}
+        - signal: LOAD_TEST_COMPLETE
+        - sh: kill -15 $PID
+        - sh: sleep ${{PAUSE_TIME}}
+        - script: capture-otel-data
+        - script: stop-test-services
+    - script: state-array-calc-avg
+      with:
+        var-name: RUN.output.results.${{RUNTIME_NAME}}.load.avThroughput
+        array: RUN.output.results.${{RUNTIME_NAME}}.load.throughput
+    - script: state-array-calc-avg
+      with:
+        var-name: RUN.output.results.${{RUNTIME_NAME}}.load.avMaxRss
+        array: RUN.output.results.${{RUNTIME_NAME}}.load.rss
+    - script: state-array-calc-max
+      with:
+        var-name: RUN.output.results.${{RUNTIME_NAME}}.load.maxThroughputDensity
+        array: RUN.output.results.${{RUNTIME_NAME}}.load.throughputDensity
+    - script: state-array-calc-avg
+      with:
+        var-name: RUN.output.results.${{RUNTIME_NAME}}.load.avConnectionErrors
+        array: RUN.output.results.${{RUNTIME_NAME}}.load.connectionErrors
+    - script: state-array-calc-avg
+      with:
+        var-name: RUN.output.results.${{RUNTIME_NAME}}.load.avRequestTimeouts
+        array: RUN.output.results.${{RUNTIME_NAME}}.load.requestTimeouts
+    - script: state-array-calc-avg
+      with:
+        var-name: RUN.output.results.${{RUNTIME_NAME}}.load.avAppErrors
+        array: RUN.output.results.${{RUNTIME_NAME}}.load.appErrors
+    - script: state-array-calc-avg
+      with:
+        var-name: RUN.output.results.${{RUNTIME_NAME}}.load.avApp4xxErrors
+        array: RUN.output.results.${{RUNTIME_NAME}}.load.app4xxErrors
+    - script: state-array-calc-avg
+      with:
+        var-name: RUN.output.results.${{RUNTIME_NAME}}.load.avApp5xxErrors
+        array: RUN.output.results.${{RUNTIME_NAME}}.load.app5xxErrors
+
+  watch-log:
+    - sh: tail -f ${{log_file}}
+      watch:
+        - regex: "${{log_regex}}"
+          then:
+            - ctrlC
+            - signal: LOG_REGEX_REACHED
+      timer:
+        1m:
+          - ctrlC
+          - abort: Log file ${{log_file}} didn't match regex ${{log_regex}} after 1 minute
+
+  watch-hyperfoil-log:
+    - sh: tail -F ${{log_file}}
+      watch:
+        - regex: "loadTest.*changing status.*RUNNING"
+          then:
+            - ctrlC
+            - signal: LOAD_STEADY_STATE_START
+      timer:
+        5m:
+          - ctrlC
+          - abort: Hyperfoil log ${{log_file}} didn't show loadTest RUNNING after 5 minutes
+
+  monitor-processes:
+    - set-signal: LOAD_TEST_COMPLETE 1
+    - script:
+        name: monitor-process
+        async: true
+      with:
+        name: pidstat
+        command: pidstat -u -w -t -p ${{pid}} 1
+        log_file: ${{log_dir}}/pidstat-${{runtime_name}}-${{iteration}}.log
+    - script:
+        name: monitor-process
+        async: true
+      with:
+        name: mpstat
+        command: mpstat -P ALL 1
+        log_file: ${{log_dir}}/mpstat-${{runtime_name}}-${{iteration}}.log
+    - script:
+        name: monitor-process
+        async: true
+      with:
+        name: vmstat
+        command: vmstat 1
+        log_file: ${{log_dir}}/vmstat-${{runtime_name}}-${{iteration}}.log
+    - script: monitor-postgres
+    - script: monitor-otel-lgtm
+
+  monitor-otel-lgtm:
+    - script:
+        name: monitor-process
+        async: true
+      with:
+        name: lgtm-pidstat
+        command: pidstat -u -w -p ALL -G "grafana|loki|otelcol|prometheus|tempo|pyroscope" 1
+        log_file: ${{log_dir}}/lgtm-pidstat-${{runtime_name}}-${{iteration}}.log
+
+  monitor-postgres:
+    - script:
+        name: monitor-process
+        async: true
+      with:
+        name: postgres-pidstat
+        command: pidstat -u -w -p ALL -G "postgres" 1
+        log_file: ${{log_dir}}/postgres-pidstat-${{runtime_name}}-${{iteration}}.log
+
+  monitor-process:
+    - queue-download: ${{log_file}}
+    - sh: ${{MONITOR_CMD_PREFIX}} ${{command}} &>${{log_file}} &
+    - sh: PROCESS_PID=$!
+    - sh: echo $PROCESS_PID
+    - set-state: PROCESS_PID
+    - wait-for: ${{monitor_complete_signal:LOAD_TEST_COMPLETE}}
+    - sh: kill -15 $PROCESS_PID
+
+  download-metrics:
+    - sh: mkdir -p ${{METRICS_DIR}}
+    - sh: rm -Rf ${{METRICS_DIR}}/metrics.json
+    - set-state: RUN.output.config ${{RUN.config}}
+    - set-state: RUN.output.env ${{RUN.env}}
+    - sh: echo '${{RUN.output}}' > ${{METRICS_DIR}}/metrics.json
+      then:
+      - regex: .*Permission denied
+        then:
+        - abort: Could not output metrics. Permission denied!
+    - queue-download: ${{METRICS_DIR}}/metrics.json
+#    - queue-download: ${{REPO_DIR}}/logs/*
+

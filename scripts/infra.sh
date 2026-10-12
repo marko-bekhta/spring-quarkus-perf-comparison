@@ -39,18 +39,24 @@ get_otel_host_pid() {
 
 # Wrapper to handle rootless podman cgroup issues on Linux
 run_with_cgroup_support() {
-  # Check if we're on Linux with rootless podman
-  if [ "$(uname)" = "Linux" ] && [ "$engine" = "podman" ] && [ "$(id -u)" -ne 0 ]; then
-    # Linux rootless podman - use systemd-run for proper cgroup delegation
+  local -a command=("$@")
+  local status
+  if [[ "$(uname)" == Linux && "$engine" == podman && "$(id -u)" -ne 0 ]]; then
     if command -v systemd-run >/dev/null 2>&1; then
-      systemd-run --user --scope --quiet -- "$@"
+      command=(systemd-run --user --scope --quiet -- "${command[@]}")
     else
-    # systemd-run not found, running without cgroup delegation (resource limits may not work)
-      "$@"
+      echo "Info: systemd-run unavailable; Podman must enforce resource limits directly." >&2
     fi
+  fi
+  if "${command[@]}"; then
+    return 0
   else
-    # macOS, Docker, or rootful podman - run directly
-    "$@"
+    status=$?
+    if [[ "$engine" == podman && "$(uname)" == Linux && "$(id -u)" -ne 0 ]]; then
+      echo "Info: rootless Podman resource limits require delegated cgroup controllers (cpu for --cpus, cpuset for --cpuset-cpus, memory for --memory)." >&2
+      echo "See scripts/perf-lab/README.md: Fedora / rootless Podman. The original error is shown above." >&2
+    fi
+    return "$status"
   fi
 }
 
@@ -76,7 +82,8 @@ start_otel() {
     networking_flags="-p 4317:4317 -p 4318:4318 -p 3000:3000 -p 4040:4040 -p 9090:9090"
   fi
 
-  local pid=$(run_with_cgroup_support ${engine} run \
+  local pid
+  pid=$(run_with_cgroup_support ${engine} run \
     ${cpus_flag} \
     ${cpuset_flag} \
     --memory ${OTEL_MEMORY} \
@@ -117,7 +124,8 @@ start_postgres() {
     networking_flags="-p 5432:5432"
   fi
 
-  local pid=$(run_with_cgroup_support ${engine} run \
+  local pid
+  pid=$(run_with_cgroup_support ${engine} run \
     ${cpus_flag} \
     ${cpuset_flag} \
     --memory ${DB_MEMORY} \
@@ -149,12 +157,16 @@ start_postgres() {
 
 stop_otel() {
   echo "Stopping Otel stack"
-  ${engine} stop ${OTEL_CONTAINER_NAME}
+  if ${engine} inspect ${OTEL_CONTAINER_NAME} >/dev/null 2>&1; then
+    ${engine} stop ${OTEL_CONTAINER_NAME}
+  fi
 }
 
 stop_postgres() {
   echo "Stopping PostgreSQL database '${DB_CONTAINER_NAME}'"
-  ${engine} stop ${DB_CONTAINER_NAME}
+  if ${engine} inspect ${DB_CONTAINER_NAME} >/dev/null 2>&1; then
+    ${engine} stop ${DB_CONTAINER_NAME}
+  fi
 }
 
 start_services() {
